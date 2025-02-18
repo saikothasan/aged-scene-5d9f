@@ -182,20 +182,15 @@ async function handleAIChat(chatId: number, userMessage: string, env: Env): Prom
 
 async function handleStart(chatId: number, env: Env): Promise<void> {
   const welcomeMessage = `
-Welcome to the AI Assistant Bot! Here are the available commands:
+Welcome to the AI Assistant Bot! Here are the available features:
 
-/start - Show this help message
-/imagine <prompt> - Generate an image based on your prompt
-/transcribe - Transcribe the next voice message or audio file you send
-/analyze - Analyze and describe the next image you send
-/summarize <text> - Summarize the provided text
-/chat <message> - Chat with the AI assistant
+- Send a text message starting with "/imagine" to generate an image based on your description.
+- Send a voice message or audio file to get a transcription.
+- Send an image to get an analysis and description.
+- Send a text message starting with "/summarize" to get a summary of the provided text.
+- Send any other text message to chat with the AI assistant.
 
-To use the image generation, type /imagine followed by your description.
-To use the audio transcription, type /transcribe and then send a voice message or audio file.
-To analyze an image, type /analyze and then send an image.
-To summarize text, type /summarize followed by the text you want to summarize.
-To chat with the AI, type /chat followed by your message.
+Feel free to try out these features!
   `;
   await sendTelegramMessage(chatId, welcomeMessage, env);
 }
@@ -218,18 +213,12 @@ async function handleTelegramWebhook(request: Request, env: Env): Promise<Respon
       } else if (text.startsWith('/imagine ')) {
         const prompt = text.slice(9).trim();
         await handleImageGeneration(chatId, prompt, env);
-      } else if (text === '/transcribe') {
-        await sendTelegramMessage(chatId, "Please send a voice message or audio file for transcription.", env);
-      } else if (text === '/analyze') {
-        await sendTelegramMessage(chatId, "Please send an image for analysis.", env);
       } else if (text.startsWith('/summarize ')) {
         const textToSummarize = text.slice(11).trim();
         await handleSummarization(chatId, textToSummarize, env);
-      } else if (text.startsWith('/chat ')) {
-        const userMessage = text.slice(6).trim();
-        await handleAIChat(chatId, userMessage, env);
       } else {
-        await sendTelegramMessage(chatId, "Unrecognized command. Type /start for help.", env);
+        // Treat any other text as a chat message
+        await handleAIChat(chatId, text, env);
       }
     } else if (update.message.voice || update.message.audio) {
       const fileId = update.message.voice ? update.message.voice.file_id : update.message.audio.file_id;
@@ -238,7 +227,7 @@ async function handleTelegramWebhook(request: Request, env: Env): Promise<Respon
       const fileId = update.message.photo[update.message.photo.length - 1].file_id;
       await handleImageToText(chatId, fileId, env);
     } else {
-      await sendTelegramMessage(chatId, "I can only process text messages, voice messages, audio files, or images. Type /start for help.", env);
+      await sendTelegramMessage(chatId, "I can process text messages, voice messages, audio files, or images. Type /start for help.", env);
     }
 
     return new Response('OK');
