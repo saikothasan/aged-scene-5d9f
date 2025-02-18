@@ -1,17 +1,22 @@
+export interface Env {
+  AI: Ai;
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env): Promise<Response> {
+
     const inputs = {
       prompt: "cyberpunk cat",
     };
 
     const response = await env.AI.run(
-      "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-      inputs,
+      "@cf/lykon/dreamshaper-8-lcm",
+      inputs
     );
 
     return new Response(response, {
       headers: {
-        "content-type": "image/png",
+        "content-type": "image/jpg",
       },
     });
   },
