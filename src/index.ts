@@ -131,6 +131,16 @@ async function handleImageToText(chatId: number, fileId: string, env: Env): Prom
     const imageResponse = await fetch(imageUrl);
     const imageBlob = await imageResponse.arrayBuffer();
 
+    // Store the image in R2
+    const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}.jpg`;
+    await env.IMAGE_BUCKET.put(filename, imageBlob, {
+      httpMetadata: {
+        contentType: 'image/jpeg',
+      },
+    });
+
+    const r2ImageUrl = `https://pub-c947d778434f41f08f6bb0fd06fb4e60.r2.dev/${filename}`;
+
     const input = {
       image: [...new Uint8Array(imageBlob)],
       prompt: "Generate a caption for this image",
@@ -143,9 +153,13 @@ async function handleImageToText(chatId: number, fileId: string, env: Env): Prom
       throw new Error('Invalid image analysis response');
     }
 
-    await sendTelegramMessage(chatId, `🖼 *Image analysis:*\n${response.response}`, env);
+    await sendTelegramMessage(chatId, `🖼 *Image analysis:*\n${response.response}\n\n[View Image](${r2ImageUrl})`, env);
   } catch (error) {
-    await sendTelegramMessage(chatId, '❌ Sorry, an error occurred while analyzing your image.', env);
+    let errorMessage = '❌ Sorry, an error occurred while analyzing your image.';
+    if (error instanceof Error) {
+      errorMessage += ` Details: ${error.message}`;
+    }
+    await sendTelegramMessage(chatId, errorMessage, env);
   }
 }
 
