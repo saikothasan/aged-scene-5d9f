@@ -95,6 +95,68 @@ async function handleAudioTranscription(chatId: number, fileId: string, env: Env
   }
 }
 
+async function handleImageToText(chatId: number, fileId: string, env: Env): Promise<void> {
+  try {
+    await sendTelegramMessage(chatId, "Analyzing your image...", env);
+    await sendChatAction(chatId, 'typing', env);
+
+    const fileInfo = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`).then(res => res.json());
+    const filePath = fileInfo.result.file_path;
+    const imageUrl = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${filePath}`;
+
+    const imageResponse = await fetch(imageUrl);
+    const imageBlob = await imageResponse.arrayBuffer();
+
+    const input = {
+      image: [...new Uint8Array(imageBlob)],
+      prompt: "Generate a caption for this image",
+      max_tokens: 512,
+    };
+
+    const response = await env.AI.run("@cf/llava-hf/llava-1.5-7b-hf", input);
+
+    await sendTelegramMessage(chatId, `Image analysis: ${response.response}`, env);
+  } catch (error) {
+    console.error('Error in image analysis:', error);
+    await sendTelegramMessage(chatId, 'Sorry, an error occurred while analyzing your image.', env);
+  }
+}
+
+async function handleSummarization(chatId: number, text: string, env: Env): Promise<void> {
+  try {
+    await sendTelegramMessage(chatId, "Summarizing your text...", env);
+    await sendChatAction(chatId, 'typing', env);
+
+    const response = await env.AI.run("@cf/facebook/bart-large-cnn", {
+      input_text: text,
+      max_length: 100  // Adjust this value as needed
+    });
+
+    await sendTelegramMessage(chatId, `Summary: ${response.summary}`, env);
+  } catch (error) {
+    console.error('Error in summarization:', error);
+    await sendTelegramMessage(chatId, 'Sorry, an error occurred while summarizing your text.', env);
+  }
+}
+
+async function handleAIChat(chatId: number, userMessage: string, env: Env): Promise<void> {
+  try {
+    await sendChatAction(chatId, 'typing', env);
+
+    const messages = [
+      { role: "system", content: "You are a friendly assistant" },
+      { role: "user", content: userMessage },
+    ];
+
+    const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", { messages });
+
+    await sendTelegramMessage(chatId, response.response, env);
+  } catch (error) {
+    console.error('Error in AI chat:', error);
+    await sendTelegramMessage(chatId, 'Sorry, an error occurred while processing your message.', env);
+  }
+}
+
 async function handleStart(chatId: number, env: Env): Promise<void> {
   const welcomeMessage = `
 Welcome to the AI Assistant Bot! Here are the available commands:
@@ -102,9 +164,15 @@ Welcome to the AI Assistant Bot! Here are the available commands:
 /start - Show this help message
 /imagine <prompt> - Generate an image based on your prompt
 /transcribe - Transcribe the next voice message or audio file you send
+/analyze - Analyze and describe the next image you send
+/summarize <text> - Summarize the provided text
+/chat <message> - Chat with the AI assistant
 
 To use the image generation, type /imagine followed by your description.
 To use the audio transcription, type /transcribe and then send a voice message or audio file.
+To analyze an image, type /analyze and then send an image.
+To summarize text, type /summarize followed by the text you want to summarize.
+To chat with the AI, type /chat followed by your message.
   `;
   await sendTelegramMessage(chatId, welcomeMessage, env);
 }
@@ -128,14 +196,25 @@ async function handleTelegramWebhook(request: Request, env: Env): Promise<Respon
       await handleImageGeneration(chatId, prompt, env);
     } else if (text === '/transcribe') {
       await sendTelegramMessage(chatId, "Please send a voice message or audio file for transcription.", env);
+    } else if (text === '/analyze') {
+      await sendTelegramMessage(chatId, "Please send an image for analysis.", env);
+    } else if (text.startsWith('/summarize ')) {
+      const textToSummarize = text.slice(11).trim();
+      await handleSummarization(chatId, textToSummarize, env);
+    } else if (text.startsWith('/chat ')) {
+      const userMessage = text.slice(6).trim();
+      await handleAIChat(chatId, userMessage, env);
     } else {
       await sendTelegramMessage(chatId, "Unrecognized command. Type /start for help.", env);
     }
   } else if (update.message.voice || update.message.audio) {
     const fileId = update.message.voice ? update.message.voice.file_id : update.message.audio.file_id;
     await handleAudioTranscription(chatId, fileId, env);
+  } else if (update.message.photo) {
+    const fileId = update.message.photo[update.message.photo.length - 1].file_id;
+    await handleImageToText(chatId, fileId, env);
   } else {
-    await sendTelegramMessage(chatId, "I can only process text messages, voice messages, or audio files. Type /start for help.", env);
+    await sendTelegramMessage(chatId, "I can only process text messages, voice messages, audio files, or images. Type /start for help.", env);
   }
 
   return new Response('OK');
