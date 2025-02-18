@@ -4,7 +4,8 @@ interface Env {
   TELEGRAM_BOT_TOKEN: string;
 }
 
-async function sendTelegramMessage(chatId: number, text: string, env: Env): Promise<void> {
+async function sendTelegramMessage(chatId: number, text: string, env: Env, parseMode: string = 'MarkdownV2'): Promise<void> {
+  const escapedText = parseMode === 'MarkdownV2' ? escapeMarkdown(text) : text;
   await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: {
@@ -12,10 +13,14 @@ async function sendTelegramMessage(chatId: number, text: string, env: Env): Prom
     },
     body: JSON.stringify({
       chat_id: chatId,
-      text: text,
-      parse_mode: 'Markdown',
+      text: escapedText,
+      parse_mode: parseMode,
     }),
   });
+}
+
+function escapeMarkdown(text: string): string {
+  return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
 }
 
 async function sendChatAction(chatId: number, action: string, env: Env): Promise<void> {
@@ -33,7 +38,7 @@ async function sendChatAction(chatId: number, action: string, env: Env): Promise
 
 async function handleImageGeneration(chatId: number, prompt: string, env: Env): Promise<void> {
   try {
-    await sendTelegramMessage(chatId, `Generating image for: "${prompt}"...`, env);
+    await sendTelegramMessage(chatId, `🎨 *Generating image for:*\n"${prompt}"`, env);
     await sendChatAction(chatId, 'upload_photo', env);
 
     const response = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
@@ -68,7 +73,8 @@ async function handleImageGeneration(chatId: number, prompt: string, env: Env): 
       body: JSON.stringify({
         chat_id: chatId,
         photo: imageUrl,
-        caption: `Here's your image based on: "${prompt}"`,
+        caption: `🖼 Here's your image based on:\n"${prompt}"`,
+        parse_mode: 'Markdown',
       }),
     });
 
@@ -77,7 +83,7 @@ async function handleImageGeneration(chatId: number, prompt: string, env: Env): 
       throw new Error(`Failed to send photo: ${errorData}`);
     }
   } catch (error) {
-    let errorMessage = 'Sorry, an error occurred while generating your image.';
+    let errorMessage = '❌ Sorry, an error occurred while generating your image.';
     if (error instanceof Error) {
       errorMessage += ` Details: ${error.message}`;
     }
@@ -87,7 +93,7 @@ async function handleImageGeneration(chatId: number, prompt: string, env: Env): 
 
 async function handleAudioTranscription(chatId: number, fileId: string, env: Env): Promise<void> {
   try {
-    await sendTelegramMessage(chatId, "Transcribing your audio...", env);
+    await sendTelegramMessage(chatId, "🎙 *Transcribing your audio...*", env);
     await sendChatAction(chatId, 'typing', env);
 
     const fileInfo = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`).then(res => res.json());
@@ -107,15 +113,15 @@ async function handleAudioTranscription(chatId: number, fileId: string, env: Env
       throw new Error('Invalid transcription response');
     }
 
-    await sendTelegramMessage(chatId, `Transcription: ${response.text}`, env);
+    await sendTelegramMessage(chatId, `📝 *Transcription:*\n${response.text}`, env);
   } catch (error) {
-    await sendTelegramMessage(chatId, 'Sorry, an error occurred while transcribing your audio.', env);
+    await sendTelegramMessage(chatId, '❌ Sorry, an error occurred while transcribing your audio.', env);
   }
 }
 
 async function handleImageToText(chatId: number, fileId: string, env: Env): Promise<void> {
   try {
-    await sendTelegramMessage(chatId, "Analyzing your image...", env);
+    await sendTelegramMessage(chatId, "🔍 *Analyzing your image...*", env);
     await sendChatAction(chatId, 'typing', env);
 
     const fileInfo = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`).then(res => res.json());
@@ -137,15 +143,15 @@ async function handleImageToText(chatId: number, fileId: string, env: Env): Prom
       throw new Error('Invalid image analysis response');
     }
 
-    await sendTelegramMessage(chatId, `Image analysis: ${response.response}`, env);
+    await sendTelegramMessage(chatId, `🖼 *Image analysis:*\n${response.response}`, env);
   } catch (error) {
-    await sendTelegramMessage(chatId, 'Sorry, an error occurred while analyzing your image.', env);
+    await sendTelegramMessage(chatId, '❌ Sorry, an error occurred while analyzing your image.', env);
   }
 }
 
 async function handleSummarization(chatId: number, text: string, env: Env): Promise<void> {
   try {
-    await sendTelegramMessage(chatId, "Summarizing your text...", env);
+    await sendTelegramMessage(chatId, "📚 *Summarizing your text...*", env);
     await sendChatAction(chatId, 'typing', env);
 
     const response = await env.AI.run("@cf/facebook/bart-large-cnn", {
@@ -157,9 +163,9 @@ async function handleSummarization(chatId: number, text: string, env: Env): Prom
       throw new Error('Invalid summarization response');
     }
 
-    await sendTelegramMessage(chatId, `Summary: ${response.summary}`, env);
+    await sendTelegramMessage(chatId, `📋 *Summary:*\n${response.summary}`, env);
   } catch (error) {
-    await sendTelegramMessage(chatId, 'Sorry, an error occurred while summarizing your text.', env);
+    await sendTelegramMessage(chatId, '❌ Sorry, an error occurred while summarizing your text.', env);
   }
 }
 
@@ -178,21 +184,23 @@ async function handleAIChat(chatId: number, userMessage: string, env: Env): Prom
       throw new Error('Invalid AI chat response');
     }
 
-    await sendTelegramMessage(chatId, response.response, env);
+    await sendTelegramMessage(chatId, `💬 *AI Response:*\n${response.response}`, env);
   } catch (error) {
-    await sendTelegramMessage(chatId, 'Sorry, an error occurred while processing your message.', env);
+    await sendTelegramMessage(chatId, '❌ Sorry, an error occurred while processing your message.', env);
   }
 }
 
 async function handleStart(chatId: number, env: Env): Promise<void> {
   const welcomeMessage = `
-Welcome to the AI Assistant Bot! Here are the available features:
+🤖 *Welcome to the AI Assistant Bot!*
 
-- Send a text message starting with "/imagine" to generate an image based on your description.
-- Send a voice message or audio file to get a transcription.
-- Send an image to get an analysis and description.
-- Send a text message starting with "/summarize" to get a summary of the provided text.
-- Send any other text message to chat with the AI assistant.
+Here are the available features:
+
+🎨 Send a text message starting with "/imagine" to generate an image based on your description.
+🎙 Send a voice message or audio file to get a transcription.
+🖼 Send an image to get an analysis and description.
+📚 Send a text message starting with "/summarize" to get a summary of the provided text.
+💬 Send any other text message to chat with the AI assistant.
 
 Feel free to try out these features!
   `;
