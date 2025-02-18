@@ -5,7 +5,7 @@ export interface Env {
 export default {
   async fetch(request, env): Promise<Response> {
     const response = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
-      prompt: 'a cyberpunk lizard',
+      prompt: 'a cyberpunk cat',
     });
     // Convert from base64 string
     const binaryString = atob(response.image);
