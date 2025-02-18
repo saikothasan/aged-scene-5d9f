@@ -40,8 +40,8 @@ async function handleImageGeneration(chatId: number, prompt: string, env: Env): 
       prompt: prompt,
     });
 
-    if (!response.image) {
-      throw new Error('No image generated');
+    if (!response || !response.image) {
+      throw new Error('No image data in the AI response');
     }
 
     const binaryString = atob(response.image);
@@ -60,7 +60,7 @@ async function handleImageGeneration(chatId: number, prompt: string, env: Env): 
 
     const imageUrl = `https://pub-c947d778434f41f08f6bb0fd06fb4e60.r2.dev/${filename}`;
 
-    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+    const sendPhotoResponse = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -71,9 +71,17 @@ async function handleImageGeneration(chatId: number, prompt: string, env: Env): 
         caption: `Here's your image based on: "${prompt}"`,
       }),
     });
+
+    if (!sendPhotoResponse.ok) {
+      const errorData = await sendPhotoResponse.text();
+      throw new Error(`Failed to send photo: ${errorData}`);
+    }
   } catch (error) {
-    console.error('Error in image generation:', error);
-    await sendTelegramMessage(chatId, 'Sorry, an error occurred while generating your image.', env);
+    let errorMessage = 'Sorry, an error occurred while generating your image.';
+    if (error instanceof Error) {
+      errorMessage += ` Details: ${error.message}`;
+    }
+    await sendTelegramMessage(chatId, errorMessage, env);
   }
 }
 
@@ -101,7 +109,6 @@ async function handleAudioTranscription(chatId: number, fileId: string, env: Env
 
     await sendTelegramMessage(chatId, `Transcription: ${response.text}`, env);
   } catch (error) {
-    console.error('Error in audio transcription:', error);
     await sendTelegramMessage(chatId, 'Sorry, an error occurred while transcribing your audio.', env);
   }
 }
@@ -132,7 +139,6 @@ async function handleImageToText(chatId: number, fileId: string, env: Env): Prom
 
     await sendTelegramMessage(chatId, `Image analysis: ${response.response}`, env);
   } catch (error) {
-    console.error('Error in image analysis:', error);
     await sendTelegramMessage(chatId, 'Sorry, an error occurred while analyzing your image.', env);
   }
 }
@@ -153,7 +159,6 @@ async function handleSummarization(chatId: number, text: string, env: Env): Prom
 
     await sendTelegramMessage(chatId, `Summary: ${response.summary}`, env);
   } catch (error) {
-    console.error('Error in summarization:', error);
     await sendTelegramMessage(chatId, 'Sorry, an error occurred while summarizing your text.', env);
   }
 }
@@ -175,7 +180,6 @@ async function handleAIChat(chatId: number, userMessage: string, env: Env): Prom
 
     await sendTelegramMessage(chatId, response.response, env);
   } catch (error) {
-    console.error('Error in AI chat:', error);
     await sendTelegramMessage(chatId, 'Sorry, an error occurred while processing your message.', env);
   }
 }
@@ -217,7 +221,6 @@ async function handleTelegramWebhook(request: Request, env: Env): Promise<Respon
         const textToSummarize = text.slice(11).trim();
         await handleSummarization(chatId, textToSummarize, env);
       } else {
-        // Treat any other text as a chat message
         await handleAIChat(chatId, text, env);
       }
     } else if (update.message.voice || update.message.audio) {
@@ -232,7 +235,6 @@ async function handleTelegramWebhook(request: Request, env: Env): Promise<Respon
 
     return new Response('OK');
   } catch (error) {
-    console.error('Error in webhook handler:', error);
     return new Response('Error', { status: 500 });
   }
 }
