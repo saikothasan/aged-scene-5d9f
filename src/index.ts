@@ -40,8 +40,15 @@ async function handleImageGeneration(chatId: number, prompt: string, env: Env): 
       prompt: prompt,
     });
 
+    if (!response.image) {
+      throw new Error('No image generated');
+    }
+
     const binaryString = atob(response.image);
-    const img = Uint8Array.from(binaryString, (m) => m.codePointAt(0));
+    const img = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      img[i] = binaryString.charCodeAt(i);
+    }
 
     const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}.jpg`;
 
@@ -88,6 +95,10 @@ async function handleAudioTranscription(chatId: number, fileId: string, env: Env
 
     const response = await env.AI.run("@cf/openai/whisper", input);
 
+    if (typeof response.text !== 'string') {
+      throw new Error('Invalid transcription response');
+    }
+
     await sendTelegramMessage(chatId, `Transcription: ${response.text}`, env);
   } catch (error) {
     console.error('Error in audio transcription:', error);
@@ -115,6 +126,10 @@ async function handleImageToText(chatId: number, fileId: string, env: Env): Prom
 
     const response = await env.AI.run("@cf/llava-hf/llava-1.5-7b-hf", input);
 
+    if (typeof response.response !== 'string') {
+      throw new Error('Invalid image analysis response');
+    }
+
     await sendTelegramMessage(chatId, `Image analysis: ${response.response}`, env);
   } catch (error) {
     console.error('Error in image analysis:', error);
@@ -129,8 +144,12 @@ async function handleSummarization(chatId: number, text: string, env: Env): Prom
 
     const response = await env.AI.run("@cf/facebook/bart-large-cnn", {
       input_text: text,
-      max_length: 100  // Adjust this value as needed
+      max_length: 100
     });
+
+    if (typeof response.summary !== 'string') {
+      throw new Error('Invalid summarization response');
+    }
 
     await sendTelegramMessage(chatId, `Summary: ${response.summary}`, env);
   } catch (error) {
@@ -149,6 +168,10 @@ async function handleAIChat(chatId: number, userMessage: string, env: Env): Prom
     ];
 
     const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", { messages });
+
+    if (typeof response.response !== 'string') {
+      throw new Error('Invalid AI chat response');
+    }
 
     await sendTelegramMessage(chatId, response.response, env);
   } catch (error) {
@@ -178,46 +201,51 @@ To chat with the AI, type /chat followed by your message.
 }
 
 async function handleTelegramWebhook(request: Request, env: Env): Promise<Response> {
-  const update = await request.json();
-  
-  if (!update.message) {
-    return new Response('OK');
-  }
-
-  const chatId = update.message.chat.id;
-
-  if (update.message.text) {
-    const text = update.message.text.trim();
+  try {
+    const update = await request.json();
     
-    if (text === '/start') {
-      await handleStart(chatId, env);
-    } else if (text.startsWith('/imagine ')) {
-      const prompt = text.slice(9).trim();
-      await handleImageGeneration(chatId, prompt, env);
-    } else if (text === '/transcribe') {
-      await sendTelegramMessage(chatId, "Please send a voice message or audio file for transcription.", env);
-    } else if (text === '/analyze') {
-      await sendTelegramMessage(chatId, "Please send an image for analysis.", env);
-    } else if (text.startsWith('/summarize ')) {
-      const textToSummarize = text.slice(11).trim();
-      await handleSummarization(chatId, textToSummarize, env);
-    } else if (text.startsWith('/chat ')) {
-      const userMessage = text.slice(6).trim();
-      await handleAIChat(chatId, userMessage, env);
-    } else {
-      await sendTelegramMessage(chatId, "Unrecognized command. Type /start for help.", env);
+    if (!update.message) {
+      return new Response('OK');
     }
-  } else if (update.message.voice || update.message.audio) {
-    const fileId = update.message.voice ? update.message.voice.file_id : update.message.audio.file_id;
-    await handleAudioTranscription(chatId, fileId, env);
-  } else if (update.message.photo) {
-    const fileId = update.message.photo[update.message.photo.length - 1].file_id;
-    await handleImageToText(chatId, fileId, env);
-  } else {
-    await sendTelegramMessage(chatId, "I can only process text messages, voice messages, audio files, or images. Type /start for help.", env);
-  }
 
-  return new Response('OK');
+    const chatId = update.message.chat.id;
+
+    if (update.message.text) {
+      const text = update.message.text.trim();
+      
+      if (text === '/start') {
+        await handleStart(chatId, env);
+      } else if (text.startsWith('/imagine ')) {
+        const prompt = text.slice(9).trim();
+        await handleImageGeneration(chatId, prompt, env);
+      } else if (text === '/transcribe') {
+        await sendTelegramMessage(chatId, "Please send a voice message or audio file for transcription.", env);
+      } else if (text === '/analyze') {
+        await sendTelegramMessage(chatId, "Please send an image for analysis.", env);
+      } else if (text.startsWith('/summarize ')) {
+        const textToSummarize = text.slice(11).trim();
+        await handleSummarization(chatId, textToSummarize, env);
+      } else if (text.startsWith('/chat ')) {
+        const userMessage = text.slice(6).trim();
+        await handleAIChat(chatId, userMessage, env);
+      } else {
+        await sendTelegramMessage(chatId, "Unrecognized command. Type /start for help.", env);
+      }
+    } else if (update.message.voice || update.message.audio) {
+      const fileId = update.message.voice ? update.message.voice.file_id : update.message.audio.file_id;
+      await handleAudioTranscription(chatId, fileId, env);
+    } else if (update.message.photo) {
+      const fileId = update.message.photo[update.message.photo.length - 1].file_id;
+      await handleImageToText(chatId, fileId, env);
+    } else {
+      await sendTelegramMessage(chatId, "I can only process text messages, voice messages, audio files, or images. Type /start for help.", env);
+    }
+
+    return new Response('OK');
+  } catch (error) {
+    console.error('Error in webhook handler:', error);
+    return new Response('Error', { status: 500 });
+  }
 }
 
 export default {
